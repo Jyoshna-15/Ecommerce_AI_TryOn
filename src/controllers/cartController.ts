@@ -65,7 +65,7 @@ export const addToCart = async (req: AuthRequest, res: Response) => {
 export const updateCartItem = async (req: AuthRequest, res: Response) => {
 
   try {
-    const { itemId } = req.params;
+   const itemId = req.params.itemId as string;
     const { quantity } = req.body;
 
     if (!quantity || quantity < 1) {
@@ -87,7 +87,7 @@ export const updateCartItem = async (req: AuthRequest, res: Response) => {
 // REMOVE item from cart
 export const removeCartItem = async (req: AuthRequest, res: Response) => {
   try {
-    const { itemId } = req.params;
+   const itemId = req.params.itemId as string;
 
     await prisma.cartItem.delete({ where: { id: itemId } });
 
