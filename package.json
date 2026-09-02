@@ -20,7 +20,8 @@
     "express": "^5.2.1",
     "express-async-handler": "^1.2.0",
     "jsonwebtoken": "^9.0.3",
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "razorpay": "^2.9.8"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
