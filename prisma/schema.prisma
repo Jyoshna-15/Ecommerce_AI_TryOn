@@ -14,6 +14,7 @@ model User {
   passwordHash String
   phone        String?
   role         Role          @default(USER)
+   fcmToken     String?
   createdAt    DateTime      @default(now())
   addresses    Address[]
   cartItems    CartItem[]

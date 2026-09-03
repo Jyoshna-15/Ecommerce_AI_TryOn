@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../config/db";
-
+import { AuthRequest } from "../middleware/authMiddleware";
 // SIGNUP
 export const signup = async (req: Request, res: Response) => {
   try {
@@ -80,6 +80,23 @@ export const login = async (req: Request, res: Response) => {
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Something went wrong" });
+  }
+};
+
+export const updateFcmToken = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { fcmToken } = req.body;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { fcmToken },
+    });
+
+    res.status(200).json({ message: "FCM token updated" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Something went wrong" });

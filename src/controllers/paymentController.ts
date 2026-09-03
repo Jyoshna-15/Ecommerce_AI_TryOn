@@ -3,6 +3,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import prisma from "../config/db";
 import { AuthRequest } from "../middleware/authMiddleware";
+import { messaging } from "../config/firebase";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID as string,
@@ -30,7 +31,6 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
       currency: razorpayOrder.currency,
       keyId: process.env.RAZORPAY_KEY_ID,
     });
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to create payment order" });
@@ -64,7 +64,6 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       include: { product: true },
     });
 
-
     if (cartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
     }
@@ -96,7 +95,6 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       for (const item of cartItems) {
         await tx.product.update({
           where: { id: item.productId },
-
           data: { stock: { decrement: item.quantity } },
         });
       }
@@ -115,6 +113,22 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
 
       return newOrder;
     });
+
+    // Send push notification (don't let a notification failure break the order response)
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (user?.fcmToken) {
+        await messaging.send({
+          token: user.fcmToken,
+          notification: {
+            title: "Payment Successful! 🎉",
+            body: `Your order #${order.id.slice(0, 8)} has been placed successfully.`,
+          },
+        });
+      }
+    } catch (notifError) {
+      console.error("Failed to send notification:", notifError);
+    }
 
     res.status(201).json(order);
   } catch (error) {

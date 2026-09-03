@@ -1,7 +1,7 @@
 import { Response } from "express";
 import prisma from "../config/db";
 import { AuthRequest } from "../middleware/authMiddleware";
-
+import { messaging } from "../config/firebase";
 // CREATE order from current cart
 export const createOrder = async (req: AuthRequest, res: Response) => {
   try {
@@ -69,6 +69,23 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
       return newOrder;
     });
+        // Send push notification
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.fcmToken) {
+      try {
+        await messaging.send({
+  token: user.fcmToken,
+  notification: {
+    title: "Order Placed! 🎉",
+    body: `Your order #${order.id.slice(0, 8)} has been placed successfully.`,
+  },
+});
+      } catch (notifError) {
+        console.error("Failed to send notification:", notifError);
+      }
+    }
+
+    res.status(201).json(order);
 
     res.status(201).json(order);
   } catch (error) {
