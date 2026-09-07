@@ -7,6 +7,8 @@ import cartRoutes from "./routes/cartRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import addressRoutes from "./routes/addressRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
+import { startDailyNotificationJob } from "./jobs/dailyNotification";
 dotenv.config();
 
 const app = express();
@@ -25,8 +27,10 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/addresses", addressRoutes);
+app.use("/api/notifications", notificationRoutes);
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+startDailyNotificationJob();
