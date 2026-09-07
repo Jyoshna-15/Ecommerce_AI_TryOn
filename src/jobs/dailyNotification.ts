@@ -10,7 +10,7 @@ const messages = [
 
 export const startDailyNotificationJob = () => {
   cron.schedule(
-    "32 10 * * *",
+    "34 10 * * *",
     async () => {
       console.log("Running daily notification job...");
 
