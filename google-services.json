@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "361784568517",
+    "project_id": "ecomtryonai",
+    "storage_bucket": "ecomtryonai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:361784568517:android:c2a7fd6b3f40fa242f1eac",
+        "android_client_info": {
+          "package_name": "com.jyoshna.d.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_ipaIxZZ3cEzVNGRIZkbgcFK4GpUvRB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

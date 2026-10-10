@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { getCart, updateCartItem, removeCartItem, CartItem } from "../api/cart";
+import { getCart, updateCartItem, removeCartItem, CartItem } from "../../api/cart";
 
 export default function CartScreen() {
   const router = useRouter();
