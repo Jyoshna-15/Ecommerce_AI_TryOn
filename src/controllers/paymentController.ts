@@ -10,19 +10,39 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET as string,
 });
 
-// STEP 1: Create a Razorpay order (called BEFORE our own order exists)
+// STEP 1: Create a Razorpay order. The amount is calculated on the server
+// from the user's cart. Anything the phone sends as "amount" is ignored.
 export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
   try {
-    const { amount } = req.body; // amount in rupees
+    const userId = req.user!.userId;
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Valid amount is required" });
+    const cart = await prisma.cartItem.findMany({
+      where: { userId },
+      include: { product: true },
+    });
+
+    if (cart.length === 0) {
+      return res.status(400).json({ message: "Cart is empty" });
     }
 
+    for (const item of cart) {
+      if (item.product.stock < item.quantity) {
+        return res
+          .status(400)
+          .json({ message: `Not enough stock for ${item.product.name}` });
+      }
+    }
+
+    const total = cart.reduce(
+      (sum, item) => sum + item.product.price * item.quantity,
+      0
+    );
+
     const razorpayOrder = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // Razorpay expects paise (amount * 100)
+      amount: Math.round(total * 100), // Razorpay expects paise
       currency: "INR",
       receipt: `receipt_${Date.now()}`,
+      notes: { userId }, // lets us confirm later that this order belongs to this user
     });
 
     res.status(200).json({
@@ -37,18 +57,30 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// STEP 2: Verify payment signature AFTER user pays, then create the real order
-export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.user!.userId;
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      addressId,
-    } = req.body;
+// STEP 2: Verify the payment after the user pays, then create the real order
+export const verifyPaymentAndCreateOrder = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  const userId = req.user!.userId;
+  const {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    addressId,
+  } = req.body;
 
-    // Verify the payment signature to confirm it's genuinely from Razorpay
+  try {
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature ||
+      !addressId
+    ) {
+      return res.status(400).json({ message: "Missing payment details" });
+    }
+
+    // 1. Verify the signature really came from Razorpay
     const generatedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
@@ -58,7 +90,26 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       return res.status(400).json({ message: "Invalid payment signature" });
     }
 
-    // Payment is verified — now create the actual order (same logic as before)
+    // 2. Replay protection: this payment may already have created an order
+    const existing = await prisma.order.findUnique({
+      where: { razorpayOrderId: razorpay_order_id },
+    });
+    if (existing) {
+      if (existing.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      return res.status(200).json(existing);
+    }
+
+    // 3. The address must belong to this user
+    const address = await prisma.address.findFirst({
+      where: { id: addressId, userId },
+    });
+    if (!address) {
+      return res.status(400).json({ message: "Invalid address" });
+    }
+
+    // 4. Rebuild the total from the cart on the server
     const cartItems = await prisma.cartItem.findMany({
       where: { userId },
       include: { product: true },
@@ -73,6 +124,16 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       0
     );
 
+    // 5. The Razorpay order must belong to this user and match the cart total
+    const rpOrder = await razorpay.orders.fetch(razorpay_order_id);
+    if (
+      (rpOrder.notes as any)?.userId !== userId ||
+      Number(rpOrder.amount) !== Math.round(totalAmount * 100)
+    ) {
+      return res.status(400).json({ message: "Payment amount mismatch" });
+    }
+
+    // 6. Create the order atomically
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.order.create({
         data: {
@@ -80,6 +141,7 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
           addressId,
           totalAmount,
           paymentStatus: "PAID",
+          razorpayOrderId: razorpay_order_id,
           items: {
             create: cartItems.map((item) => ({
               productId: item.productId,
@@ -93,10 +155,12 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       });
 
       for (const item of cartItems) {
-        await tx.product.update({
-          where: { id: item.productId },
+        // Only decrements if enough stock remains, in a single atomic step
+        const result = await tx.product.updateMany({
+          where: { id: item.productId, stock: { gte: item.quantity } },
           data: { stock: { decrement: item.quantity } },
         });
+        if (result.count === 0) throw new Error("OUT_OF_STOCK");
       }
 
       await tx.cartItem.deleteMany({ where: { userId } });
@@ -114,7 +178,7 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       return newOrder;
     });
 
-    // Send push notification (don't let a notification failure break the order response)
+    // 7. A notification failure must never break the order response
     try {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (user?.fcmToken) {
@@ -130,9 +194,36 @@ export const verifyPaymentAndCreateOrder = async (req: AuthRequest, res: Respons
       console.error("Failed to send notification:", notifError);
     }
 
-    res.status(201).json(order);
-  } catch (error) {
+    return res.status(201).json(order);
+  } catch (error: any) {
+    // Two simultaneous verify calls: the unique constraint blocked the second one
+    if (error?.code === "P2002") {
+      const existing = await prisma.order.findUnique({
+        where: { razorpayOrderId: razorpay_order_id },
+      });
+      if (existing && existing.userId === userId) {
+        return res.status(200).json(existing);
+      }
+    }
+
+    // An item sold out after the customer paid: refund automatically
+    if (error?.message === "OUT_OF_STOCK") {
+      try {
+        await razorpay.payments.refund(razorpay_payment_id, {});
+      } catch (refundError) {
+        console.error(
+          "REFUND FAILED, handle manually:",
+          razorpay_payment_id,
+          refundError
+        );
+      }
+      return res.status(409).json({
+        message:
+          "An item sold out while you were paying. Your payment is being refunded.",
+      });
+    }
+
     console.error(error);
-    res.status(500).json({ message: "Payment verification failed" });
+    return res.status(500).json({ message: "Payment verification failed" });
   }
 };

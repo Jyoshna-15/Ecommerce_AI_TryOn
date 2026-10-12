@@ -78,6 +78,7 @@ model Order {
   user          User          @relation(fields: [userId], references: [id])
   items         OrderItem[]
   payments      Payment[]
+  razorpayOrderId String? @unique
 }
 
 model OrderItem {
